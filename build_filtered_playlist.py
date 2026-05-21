@@ -70,6 +70,35 @@ REGION_LOCKED_KEYWORDS = [
     'australia only', 'canada only',
 ]
 
+# ---- Group consolidation ----
+GROUP_CONSOLIDATIONS = {
+    # Merge smaller groups into larger parent categories
+    'auto': 'Lifestyle',
+    'cooking': 'Lifestyle',
+    'travel': 'Lifestyle',
+    'shop': 'Lifestyle',
+    'relax': 'Lifestyle',
+    'science': 'Education',
+    'weather': 'News',
+    'animation': 'Kids',
+    'family': 'Kids',
+    'classic': 'Entertainment',
+    'legislative': 'General',
+    # Undefined stays as-is (channels with no group-title attr)
+}
+
+
+def consolidate_group(group):
+    """Consolidate a group name, taking first semicolon-separated value."""
+    if not group:
+        return 'General'
+    # Take only the first group (some channels have "General;Religious")
+    primary = group.split(';')[0].strip()
+    if not primary or primary.lower() == 'undefined':
+        return 'General'
+    return GROUP_CONSOLIDATIONS.get(primary.lower(), primary)
+
+
 # Channels known to be explicitly geo-blocked to non-US regions (by URL/domain inference)
 KNOWN_GEO_BLOCKED_DOMAINS = [
     'bbc.co.uk', 'bbc.com',  # BBC iPlayer is UK-only
@@ -109,8 +138,9 @@ def parse_channels(content):
             tvg_id = tvg_id.group(1) if tvg_id else ''
             tvg_logo = re.search(r'tvg-logo="([^"]*)"', extinf_attrs)
             tvg_logo = tvg_logo.group(1) if tvg_logo else ''
-            group_title = re.search(r'group-title="([^"]*)"', extinf_attrs)
-            group_title = group_title.group(1) if group_title else ''
+            group_title_raw = re.search(r'group-title="([^"]*)"', extinf_attrs)
+            group_title_raw = group_title_raw.group(1) if group_title_raw else ''
+            group_title = consolidate_group(group_title_raw)
 
             # Clean name
             clean_name = re.sub(r'\s*\(\d{3,4}[ip]\)\s*', '', channel_name)
