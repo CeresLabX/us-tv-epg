@@ -1,5 +1,5 @@
 #EXTM3U
-#EXTINF:-1 tvg-id="KGWDT1.us" tvg-logo="" group-title="Local News | PNW",KGW 8 News Portland
+#EXTINF:-1 tvg-id="KGWDT1.us" tvg-logo="" group-title="Local News",KGW 8 News Portland
 https://livevideo01.kgw.com/hls/live/2015506/elvs/live.m3u8
 #EXTINF:-1 tvg-id="30AGolfKingdom.us@SD" tvg-logo="https://golfkingdom.net/wp-content/uploads/2022/04/golf-kingdom-st.jpg" group-title="Sports",30A Golf Kingdom
 https://30a-tv.com/feeds/vidaa/golf.m3u8

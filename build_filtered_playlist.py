@@ -343,9 +343,9 @@ deduped = [c for c in deduped if c['group'] != 'International']
 print(f"Removed International: {before_intl - len(deduped)}")
 
 eu={c['url'] for c in deduped}
-for ec in [{'name':'KGW 8 News Portland','id':'KGWDT1.us','logo':'','group':'Local News | PNW','url':'https://livevideo01.kgw.com/hls/live/2015506/elvs/live.m3u8'},
-           {'name':'KATU News Portland','id':'KATUDT1.us','logo':'','group':'Local News | PNW','url':'https://linear-710.frequency.stream/dist/stirr/710/hls/master/playlist.m3u8'},
-           {'name':'KIRO 7 News Seattle','id':'KIRODT1.us','logo':'','group':'Local News | PNW','url':'https://cdn-ue1-prod.tsv2.amagi.tv/linear/amg00327-coxmediagroup-kirobreaking-ono/playlist.m3u8'}]:
+for ec in [{'name':'KGW 8 News Portland','id':'KGWDT1.us','logo':'','group':'Local News','url':'https://livevideo01.kgw.com/hls/live/2015506/elvs/live.m3u8'},
+           {'name':'KATU News Portland','id':'KATUDT1.us','logo':'','group':'Local News','url':'https://linear-710.frequency.stream/dist/stirr/710/hls/master/playlist.m3u8'},
+           {'name':'KIRO 7 News Seattle','id':'KIRODT1.us','logo':'','group':'Local News','url':'https://cdn-ue1-prod.tsv2.amagi.tv/linear/amg00327-coxmediagroup-kirobreaking-ono/playlist.m3u8'}]:
     if ec['url'] not in eu: deduped.append(ec)
 
 def sk(c):
