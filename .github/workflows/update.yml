@@ -8,6 +8,7 @@ on:
 jobs:
   update:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -17,22 +18,7 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Write full playlist M3U
-        run: |
-          python3 - <<'PYEOF'
-          import urllib.request
-          req = urllib.request.Request('https://iptv-org.github.io/iptv/countries/us.m3u',
-              headers={'User-Agent': 'Mozilla/5.0'})
-          with urllib.request.urlopen(req, timeout=30) as r:
-              content = r.read().decode('utf-8')
-          with open('full_playlist.m3u', 'w', encoding='utf-8') as f:
-              f.write(content.replace('\r\n', '\n').replace('\r', '\n'))
-          PYEOF
-
-      - name: Generate full EPG
-        run: python3 generate_epg.py && cp epg.xml epg_full.xml
-
-      - name: Generate custom filtered playlist + EPG
+      - name: Fetch sources + build merged playlist + EPG
         run: python3 build_filtered_playlist.py
 
       - name: Commit and push
