@@ -2,6 +2,20 @@
 import urllib.request, re, concurrent.futures, xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 
+# ---- Hardcoded channels not in any public source ----
+EXTRA_CHANNELS = [
+    {
+        'name': 'KGW 8 News Portland',
+        'id':   'KGWDT1.us',
+        'logo': '',
+        'group': 'Local News',
+        'language': '',
+        'url':  'https://livevideo01.kgw.com/hls/live/2015506/elvs/live.m3u8',
+        'raw_name': 'KGW 8 News Portland',
+        'source': 'manual',
+    },
+]
+
 SOURCES = [
     {"name": "iptv-org US", "url": "https://iptv-org.github.io/iptv/countries/us.m3u"},
     {"name": "Free-TV",     "url": "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8"},
@@ -196,6 +210,13 @@ fm={}
 for c in valid:
     if c['url'] not in fm: fm[c['url']]=c
 final=list(fm.values())
+
+# Add hardcoded extras not already in the list
+extra_urls = {c['url'] for c in final}
+for ec in EXTRA_CHANNELS:
+    if ec['url'] not in extra_urls:
+        final.append(ec)
+        extra_urls.add(ec['url'])
 def sk(c):
     g=c['group'].lower()
     if 'local news' in g: return(0,g,c['name'])
