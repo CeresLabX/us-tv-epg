@@ -58,22 +58,21 @@ $passed    = 0
 $failed    = 0
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
+$sep = "================================================================================"
 "" | Out-File -FilePath $LogFile -Encoding UTF8
-@"
-================================================================================
-STREAM VALIDATION LOG — $timestamp
-Playlist: $Playlist
-Total channels: $total
-================================================================================
-
-"@ | Out-File -FilePath $LogFile -Append -Encoding UTF8
+"$sep" | Out-File -FilePath $LogFile -Append -Encoding UTF8
+"STREAM VALIDATION LOG - $timestamp" | Out-File -FilePath $LogFile -Append -Encoding UTF8
+"Playlist: $Playlist" | Out-File -FilePath $LogFile -Append -Encoding UTF8
+"Total channels: $total" | Out-File -FilePath $LogFile -Append -Encoding UTF8
+"$sep" | Out-File -FilePath $LogFile -Append -Encoding UTF8
+"" | Out-File -FilePath $LogFile -Append -Encoding UTF8
 
 "" | Out-File -FilePath $FailedFile -Encoding UTF8
-"# Failed streams — $timestamp" | Out-File -FilePath $FailedFile -Append -Encoding UTF8
+"# Failed streams - $timestamp" | Out-File -FilePath $FailedFile -Append -Encoding UTF8
 "# Format: tvg-id|name|group|url|HTTP_code|reason" | Out-File -FilePath $FailedFile -Append -Encoding UTF8
 
 "" | Out-File -FilePath $PassedFile -Encoding UTF8
-"# Passed streams — $timestamp" | Out-File -FilePath $PassedFile -Append -Encoding UTF8
+"# Passed streams - $timestamp" | Out-File -FilePath $PassedFile -Append -Encoding UTF8
 "# Format: tvg-id|name|url|HTTP_code|content_type" | Out-File -FilePath $PassedFile -Append -Encoding UTF8
 
 Write-Host "Found $total channels. Starting validation..."
@@ -86,7 +85,9 @@ for ($idx = 0; $idx -lt $channels.Count; $idx++) {
     $ch  = $channels[$idx]
     $pct = ($idx + 1) / $total * 100
     $elapsed = $stopwatch.Elapsed.ToString("mm\:ss")
-    Write-Host -NoNewline "`r[$($idx+1)/$total ($($pct.ToString('0.0'))%) $elapsed] $($ch.Name.PadRight(40))"
+    $namePad = $ch.Name.PadRight(40)
+    if ($namePad.Length -gt 40) { $namePad = $namePad.Substring(0, 40) }
+    Write-Host -NoNewline "`r[$($idx+1)/$total ($($pct.ToString('0.0'))%) $elapsed] $namePad"
 
     $ok = $false; $httpCode = 0; $ctype = ""; $reason = ""
 
@@ -112,27 +113,28 @@ for ($idx = 0; $idx -lt $channels.Count; $idx++) {
         elseif ($errMsg -match "403")  { $httpCode = 403; $reason = "403 Forbidden"; $ok = $false }
         elseif ($errMsg -match "timeout|Timeout") { $httpCode = 0; $reason = "timeout"; $ok = $false }
         else {
-            $httpCode = 0; $reason = $errMsg.Substring(0, [Math]::Min(80, $errMsg.Length)); $ok = $false
+            $msg = $errMsg.Substring(0, [Math]::Min(80, $errMsg.Length))
+            $httpCode = 0; $reason = $msg; $ok = $false
         }
     }
 
     $statusStr = if ($ok) { "PASS" } else { "FAIL" }
 
-    @"
-[$statusStr] $($ch.ID)
-  Name:   $($ch.Name)
-  Group:  $($ch.Group)
-  URL:    $($ch.URL)
-  Result: HTTP $httpCode | $ctype | $reason
-
-"@ | Out-File -FilePath $LogFile -Append -Encoding UTF8
+    $logEntry = "[$statusStr] " + $ch.ID + "`n"
+    $logEntry = $logEntry + "  Name:   " + $ch.Name + "`n"
+    $logEntry = $logEntry + "  Group:  " + $ch.Group + "`n"
+    $logEntry = $logEntry + "  URL:    " + $ch.URL + "`n"
+    $logEntry = $logEntry + "  Result: HTTP $httpCode | $ctype | $reason`n`n"
+    $logEntry | Out-File -FilePath $LogFile -Append -Encoding UTF8
 
     if ($ok) {
         $passed++
-        "$($ch.ID)|$($ch.Name)|$($ch.URL)|$httpCode|$ctype" | Out-File -FilePath $PassedFile -Append -Encoding UTF8
+        $line = $ch.ID + "|" + $ch.Name + "|" + $ch.URL + "|" + $httpCode + "|" + $ctype
+        $line | Out-File -FilePath $PassedFile -Append -Encoding UTF8
     } else {
         $failed++
-        "$($ch.ID)|$($ch.Name)|$($ch.Group)|$($ch.URL)|$httpCode|$reason" | Out-File -FilePath $FailedFile -Append -Encoding UTF8
+        $line = $ch.ID + "|" + $ch.Name + "|" + $ch.Group + "|" + $ch.URL + "|" + $httpCode + "|" + $reason
+        $line | Out-File -FilePath $FailedFile -Append -Encoding UTF8
     }
 }
 
