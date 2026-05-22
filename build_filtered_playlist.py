@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """
-iptv-org US only — no validation, English-language channels.
+iptv-org US only — English-language only, no validation.
 Source: https://iptv-org.github.io/iptv/countries/us.m3u
+
+Filters:
+  - Reject non-English by tvg-id @ suffix (anything not @English/en/sd/hd/fhd/4k/uhd/us)
+  - Reject by channel name: Spanish keywords (latino/latina/espanol/telemundo/univision/etc.), Pluto TV
+  - Reject by URL: Pluto TV redirects (jmp2.uk/plu-)
+  - Reject non-Latin script (Cyrillic/Greek/Arabic/Hebrew/CJK/Devanagari)
 """
 import re, urllib.request
 import xml.etree.ElementTree as ET
@@ -12,33 +18,47 @@ SOURCE_URL = "https://iptv-org.github.io/iptv/countries/us.m3u"
 OUTPUT_PLAYLIST = "playlist.m3u"
 OUTPUT_EPG      = "epg.xml"
 
-KEEP_GROUPS = {
-    'general','local news','sports','entertainment','movies','series','news','kids','religious',
-    'lifestyle','education','music','documentary','comedy','culture','business','outdoor',
-    'pluto tv','plex','roku channel','samsung tv plus','tubi','pbs','pbs kids',
+# Channel names containing these → reject (non-English or Pluto TV)
+REJECT_NAME = {
+    'pluto tv', 'pluto!',
+    # Spanish language
+    'latino channel', 'latina channel',  # "Latino Channel TV"
+    'latino', 'latina',
+    # standalone (for channels like "Runtime CBN Espanol")
+    'espanol',
+    # "Vevo Latino", "3ABN Latino", "Latino TV"
+    'tv espa', 'tv espanol', 'tv español', 'en espanol', 'en español',
+    'telemundo', 'univision', 'telenovela', 'telenovelas',
+    'reino infantil', 'cine clásico',
+    # Telemundo-owned local station call signs
+    'knso ', 'kvea', 'wnju', 'wscv',
 }
-GROUP_CONSOLIDATIONS = {
-    'auto':'Lifestyle','cooking':'Lifestyle','travel':'Lifestyle','shop':'Lifestyle','relax':'Lifestyle',
-    'science':'Education','weather':'News','animation':'Kids','family':'Kids',
-    'classic':'Entertainment','legislative':'General',
-}
-REJECT_GROUPS = {
-    'auto','cooking','travel','shop','relax','science','weather','animation','family',
-    'classic','legislative',
-}
-EXTRA_CHANNELS = [
-    {'name':'KGW 8 News Portland','id':'KGWDT1.us','logo':'','group':'Local News','language':'English',
-     'url':'https://livevideo01.kgw.com/hls/live/2015506/elvs/live.m3u8','raw_name':'KGW 8 News Portland','source':'manual'},
-]
 
 def consolidate_group(g):
     if not g: return 'General'
     p = g.split(';')[0].strip()
     if not p or p.lower() == 'undefined': return 'General'
     pl = p.lower()
-    if pl in REJECT_GROUPS: return None
-    if pl not in KEEP_GROUPS: return 'International'
-    return GROUP_CONSOLIDATIONS.get(pl, p.title())
+    if pl in {'auto','cooking','travel','shop','relax','science','weather','animation','family','classic','legislative'}: return None
+    KEEP={'general','local news','sports','entertainment','movies','series','news','kids','religious','lifestyle','education','music','documentary','comedy','culture','business','outdoor','pluto tv','plex','roku channel','samsung tv plus','tubi','pbs','pbs kids'}
+    if pl not in KEEP: return 'International'
+    CONS={'auto':'Lifestyle','cooking':'Lifestyle','travel':'Lifestyle','shop':'Lifestyle','relax':'Lifestyle','science':'Education','weather':'News','animation':'Kids','family':'Kids','classic':'Entertainment','legislative':'General'}
+    return CONS.get(pl, p.title())
+
+def is_english(ch):
+    n = ch['name']
+    # Non-Latin script → reject
+    if any(ord(c) > 0x3000 for c in n): return False
+    if any(0x0590 <= ord(c) < 0x0780 for c in n): return False  # Hebrew/Arabic/Devanagari
+    if any(0x0400 <= ord(c) < 0x0500 for c in n): return False  # Cyrillic
+    if any(0x0370 <= ord(c) < 0x0400 for c in n): return False  # Greek
+    # Name reject keywords
+    nl = n.lower()
+    for kw in REJECT_NAME:
+        if kw in nl: return False
+    # Pluto TV redirect URL
+    if 'jmp2.uk/plu-' in ch.get('url','').lower(): return False
+    return True
 
 def fetch_m3u(url):
     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (compatible; IPTVBuilder/1.0)'})
@@ -67,27 +87,10 @@ def parse_m3u(content):
             clean = re.sub(r'\s*\[[^\]]+\]\s*','',clean).strip()
             group = consolidate_group(raw_grp) if raw_grp else 'General'
             if group is None: i=j if j>i else i+1; continue
-            lang = ''
-            at = tvg_id.rfind('@')
-            if at!=-1:
-                s = tvg_id[at+1:].lower()
-                lm={'english':'English','en':'English','spanish':'Spanish','es':'Spanish','french':'French','fr':'French',
-                    'chinese':'Chinese','zh':'Chinese','korean':'Korean','ko':'Korean','arabic':'Arabic','ar':'Arabic',
-                    'hindi':'Hindi','hi':'Hindi','portuguese':'Portuguese','pt':'Portuguese','german':'German','de':'German',
-                    'italian':'Italian','it':'Italian','japanese':'Japanese','ja':'Japanese','russian':'Russian','ru':'Russian',
-                    'vietnamese':'Vietnamese','vi':'Vietnamese','tagalog':'Tagalog','tl':'Tagalog','polish':'Polish','pl':'Polish',
-                    'dutch':'Dutch','nl':'Dutch','turkish':'Turkish','tr':'Turkish','greek':'Greek','el':'Greek',
-                    'hebrew':'Hebrew','he':'Hebrew','persian':'Persian','fa':'Persian'}
-                lang = lm.get(s,'')
-            chs.append({'name':clean,'id':tvg_id,'logo':tvg_logo,'group':group,'language':lang,'url':url})
+            chs.append({'name':clean,'id':tvg_id,'logo':tvg_logo,'group':group,'url':url})
             i = j if j>i else i+1
         else: i+=1
     return chs
-
-def is_english(ch):
-    return ch.get('language','') not in {'Spanish','French','German','Italian','Portuguese','Chinese','Korean',
-        'Hindi','Arabic','Japanese','Russian','Vietnamese','Tagalog','Polish','Dutch','Turkish',
-        'Greek','Hebrew','Persian','Unknown'}
 
 def write_m3u(chs, fn):
     with open(fn,'w',encoding='utf-8') as f:
@@ -130,9 +133,22 @@ seen={}
 for c in raw:
     if c['url'] not in seen: seen[c['url']]=c
 deduped=list(seen.values())
-deduped=[c for c in deduped if is_english(c)]
+print(f"After URL dedup: {len(deduped)}")
+
+n1=len(deduped)
+rejected=[]
+kept=[]
+for c in deduped:
+    if is_english(c):
+        kept.append(c)
+    else:
+        rejected.append(c['name'])
+deduped=kept
+print(f"After filter: {n1} -> {len(deduped)}")
+print(f"Rejected: {len(rejected)}")
+
 eu={c['url'] for c in deduped}
-for ec in EXTRA_CHANNELS:
+for ec in [{'name':'KGW 8 News Portland','id':'KGWDT1.us','logo':'','group':'Local News','url':'https://livevideo01.kgw.com/hls/live/2015506/elvs/live.m3u8'}]:
     if ec['url'] not in eu: deduped.append(ec)
 
 def sk(c):
@@ -150,5 +166,6 @@ with open(OUTPUT_EPG,'wb') as f:
     ET.ElementTree(tv).write(f,encoding='utf-8',xml_declaration=False)
 
 groups=Counter(c['group'] for c in deduped)
+print(f"\nGroups ({len(groups)}):")
 for g,cnt in groups.most_common(): print(f"  {g}: {cnt}")
 print(f"\nFinal: {len(deduped)} channels")
