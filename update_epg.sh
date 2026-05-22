@@ -1,6 +1,5 @@
 #!/bin/bash
-# Local update script (GitHub Actions handles the cron push)
-# This script regenerates files locally — use for testing
+# Local rebuild script for us-tv repo
 set -e
 cd "$(dirname "$0")"
 
@@ -15,6 +14,6 @@ with open('full_playlist.m3u', 'w', encoding='utf-8') as f:
 PYEOF
 
 python3 generate_epg.py && cp epg.xml epg_full.xml
-python3 build_filtered_playlist.py && mv epg.xml epg_custom.xml
+python3 build_filtered_playlist.py  # outputs playlist.m3u + epg.xml
 
-echo "Done. Files ready to commit."
+echo "Done. Commit and push manually."

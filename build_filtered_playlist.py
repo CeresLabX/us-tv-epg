@@ -13,7 +13,7 @@ import sys
 from datetime import datetime, timedelta
 
 M3U_URL = "https://iptv-org.github.io/iptv/countries/us.m3u"
-PLAYLIST_OUT = "custom_playlist.m3u"
+PLAYLIST_OUT = "playlist.m3u"
 EPG_OUT = "epg.xml"
 
 # ---- Language detection ----
