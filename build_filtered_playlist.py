@@ -1,23 +1,39 @@
 #!/usr/bin/env python3
 """
-Multi-source US IPTV: iptv-org US + selective Free-TV (English-speaking countries).
-Key English-language international channels (euronews, CGTN, Al Jazeera) added as hardcoded extras.
-No stream validation (VPN in Canada = unreliable).
+Multi-source US IPTV builder.
+Sources: iptv-org US + iptv-org English + Free-TV/IPTV
+With stream validation (parallel), URL dedup, group consolidation.
+
+Free-TV channels only accepted if:
+  - Channel group is a recognized KEEP group (News, Sports, etc.)
+  - OR tvg-id has @English suffix
+Otherwise rejected (prevents non-English country-channels from leaking in).
 """
-import re, urllib.request
+import re, urllib.request, concurrent.futures
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from collections import Counter
 
 SOURCES = [
-    {"name": "iptv-org US", "url": "https://iptv-org.github.io/iptv/countries/us.m3u"},
-    {"name": "Free-TV",     "url": "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8"},
+    {"name": "iptv-org US",     "url": "https://iptv-org.github.io/iptv/countries/us.m3u"},
+    {"name": "iptv-org English","url": "https://iptv-org.github.io/iptv/languages/eng.m3u"},
+    {"name": "Free-TV",         "url": "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8"},
 ]
 OUTPUT_PLAYLIST = "playlist.m3u"
 OUTPUT_EPG      = "epg.xml"
+MAX_WORKERS      = 32
 
-ACCEPT_FT_COUNTRIES = {'usa','united states','uk','united kingdom','australia','canada','ireland','new zealand'}
-REJECT_FT_GROUPS = {
+VOD_GROUPS = {
+    'pluto tv':'Pluto TV','plex':'Plex','roku channel':'Roku Channel',
+    'samsung tv plus':'Samsung TV Plus','tubi':'Tubi',
+    'pbs':'PBS','pbs kids':'PBS Kids',
+}
+KEEP_GROUPS = {
+    'general','local news','sports','entertainment','movies','series','news','kids','religious',
+    'lifestyle','education','music','documentary','comedy','culture','business','outdoor',
+    'pluto tv','plex','roku channel','samsung tv plus','tubi','pbs','pbs kids',
+}
+REJECT_GROUPS = {
     'auto','cooking','travel','shop','relax','science','weather','animation','family',
     'classic','legislative',
     'vod movies (en)','vod movies (es)','vod movies (fr)','vod movies (it)','vod movies (de)',
@@ -30,38 +46,42 @@ REJECT_FT_GROUPS = {
     'usa vod','italy vod','spain vod','france vod','germany vod',
     'mexico vod','brazil vod','argentina vod','latin america vod',
 }
-KEEP_GROUPS = {
-    'general','local news','sports','entertainment','movies','series','news','kids','religious',
-    'lifestyle','education','music','documentary','comedy','culture','business','outdoor',
-    'pluto tv','plex','roku channel','samsung tv plus','tubi','pbs','pbs kids',
-}
 GROUP_CONSOLIDATIONS = {
     'auto':'Lifestyle','cooking':'Lifestyle','travel':'Lifestyle','shop':'Lifestyle','relax':'Lifestyle',
     'science':'Education','weather':'News','animation':'Kids','family':'Kids',
     'classic':'Entertainment','legislative':'General',
 }
-
-# Hardcoded extras: KGW (Portland) + key international English channels from Free-TV
 EXTRA_CHANNELS = [
     {'name':'KGW 8 News Portland','id':'KGWDT1.us','logo':'','group':'Local News','language':'English',
      'url':'https://livevideo01.kgw.com/hls/live/2015506/elvs/live.m3u8','raw_name':'KGW 8 News Portland','source':'manual'},
-    {'name':'Al Jazeera English','id':'AlJazeeraEnglish.qa','logo':'https://i.imgur.com/KQwJYtU.png','group':'International','language':'English',
-     'url':'https://live-hls-apps-aje-fa.getaj.net/AJE/index.m3u8','raw_name':'Al Jazeera English','source':'Free-TV'},
-    {'name':'CGTN','id':'CGTN.cn','logo':'https://i.imgur.com/ZJqXnR8.png','group':'International','language':'English',
-     'url':'https://news.cgtn.com/resource/live/english/cgtn-news.m3u8','raw_name':'CGTN','source':'Free-TV'},
-    {'name':'CGTN Documentary English','id':'CGTNDocumentary.cn','logo':'https://i.imgur.com/WjqrqqQ.png','group':'International','language':'English',
-     'url':'https://news.cgtn.com/resource/live/document/cgtn-doc.m3u8','raw_name':'CGTN Documentary English','source':'Free-TV'},
 ]
+
+def tvg_lang(tvg_id):
+    if not tvg_id: return ''
+    at = tvg_id.rfind('@')
+    if at == -1: return ''
+    s = tvg_id[at+1:].lower()
+    lm={'english':'English','en':'English','spanish':'Spanish','es':'Spanish','french':'French','fr':'French',
+        'chinese':'Chinese','zh':'Chinese','korean':'Korean','ko':'Korean','arabic':'Arabic','ar':'Arabic',
+        'hindi':'Hindi','hi':'Hindi','portuguese':'Portuguese','pt':'Portuguese','german':'German','de':'German',
+        'italian':'Italian','it':'Italian','japanese':'Japanese','ja':'Japanese','russian':'Russian','ru':'Russian',
+        'vietnamese':'Vietnamese','vi':'Vietnamese','tagalog':'Tagalog','tl':'Tagalog','polish':'Polish','pl':'Polish',
+        'dutch':'Dutch','nl':'Dutch','turkish':'Turkish','tr':'Turkish','greek':'Greek','el':'Greek',
+        'hebrew':'Hebrew','he':'Hebrew','persian':'Persian','fa':'Persian'}
+    return lm.get(s,'')
+
+def is_english_tvg(tvg_id):
+    return tvg_lang(tvg_id) == 'English'
 
 def consolidate_group(g):
     if not g: return 'General'
     p = g.split(';')[0].strip()
     if not p or p.lower() == 'undefined': return 'General'
-    p_lower = p.lower()
-    if p_lower in REJECT_FT_GROUPS: return None
-    if p_lower == 'legislative': return 'International'
-    if p_lower not in KEEP_GROUPS: return 'International'
-    return GROUP_CONSOLIDATIONS.get(p_lower, p.title())
+    pl = p.lower()
+    if pl in REJECT_GROUPS: return None
+    if pl in VOD_GROUPS: return VOD_GROUPS[pl]
+    if pl not in KEEP_GROUPS: return 'International'
+    return GROUP_CONSOLIDATIONS.get(pl, p.title())
 
 def fetch_m3u(url):
     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (compatible; IPTVBuilder/1.0)'})
@@ -88,29 +108,20 @@ def parse_m3u(content, src_name):
             tvg_id, tvg_logo, raw_grp = m(r'tvg-id="([^"]*)"'), m(r'tvg-logo="([^"]*)"'), m(r'group-title="([^"]*)"')
             clean = re.sub(r'\s*\(\d{3,4}[ip]\)\s*','',name)
             clean = re.sub(r'\s*\[[^\]]+\]\s*','',clean).strip()
-            
-            if 'free-tv' in src_name.lower() and raw_grp:
-                grp_lower = raw_grp.lower()
-                if grp_lower not in ACCEPT_FT_COUNTRIES:
+
+            # Free-TV: only accept if in KEEP group OR has English tvg-id suffix
+            if 'free-tv' in src_name.lower():
+                in_keep = raw_grp and raw_grp.lower() in KEEP_GROUPS
+                has_en_tvg = is_english_tvg(tvg_id)
+                if not in_keep and not has_en_tvg:
                     i = j if j>i else i+1; continue
-                group = raw_grp.title()
+                group = consolidate_group(raw_grp) if raw_grp else 'General'
+                if group is None: i=j if j>i else i+1; continue
             else:
                 group = consolidate_group(raw_grp) if raw_grp else 'General'
                 if group is None: i=j if j>i else i+1; continue
-            
-            lang = ''
-            at = tvg_id.rfind('@')
-            if at!=-1:
-                s = tvg_id[at+1:].lower()
-                lm={'english':'English','en':'English','spanish':'Spanish','es':'Spanish','french':'French','fr':'French',
-                    'chinese':'Chinese','zh':'Chinese','korean':'Korean','ko':'Korean','arabic':'Arabic','ar':'Arabic',
-                    'hindi':'Hindi','hi':'Hindi','portuguese':'Portuguese','pt':'Portuguese','german':'German','de':'German',
-                    'italian':'Italian','it':'Italian','japanese':'Japanese','ja':'Japanese','russian':'Russian','ru':'Russian',
-                    'vietnamese':'Vietnamese','vi':'Vietnamese','tagalog':'Tagalog','tl':'Tagalog','polish':'Polish','pl':'Polish',
-                    'dutch':'Dutch','nl':'Dutch','turkish':'Turkish','tr':'Turkish','greek':'Greek','el':'Greek',
-                    'hebrew':'Hebrew','he':'Hebrew','persian':'Persian','fa':'Persian'}
-                lang = lm.get(s,'')
-            
+
+            lang = tvg_lang(tvg_id)
             chs.append({'name':clean,'id':tvg_id,'logo':tvg_logo,'group':group,'language':lang,'url':url,'raw_name':name,'source':src_name})
             i = j if j>i else i+1
         else: i+=1
@@ -120,6 +131,15 @@ def is_english(ch):
     return ch.get('language','') not in {'Spanish','French','German','Italian','Portuguese','Chinese','Korean',
         'Hindi','Arabic','Japanese','Russian','Vietnamese','Tagalog','Polish','Dutch','Turkish',
         'Greek','Hebrew','Persian','Unknown'}
+
+def validate(ch):
+    try:
+        req = urllib.request.Request(ch['url'], headers={'User-Agent': 'Mozilla/5.0'}, method='HEAD')
+        with urllib.request.urlopen(req, timeout=6) as r:
+            return r.status in (200,206,301,302,303,304)
+    except urllib.error.HTTPError as e:
+        return e.code not in (403,404,500,502,503)
+    except: return False
 
 def write_m3u(chs, fn):
     with open(fn,'w',encoding='utf-8') as f:
@@ -169,26 +189,41 @@ for src in SOURCES:
         print(f"FAILED ({e})")
 
 total_raw=len(all_raw)
-print(f"\nTotal raw: {total_raw}")
+print(f"\nTotal raw (after Free-TV filter): {total_raw}")
 
+pri = {'iptv-org US': 0, 'iptv-org English': 1, 'Free-TV': 2}
 seen={}
 for ch,sn in all_raw:
-    p=0 if 'iptv-org' in sn else 1
-    if ch['url'] not in seen or p==0: seen[ch['url']]=(ch,sn,p)
-deduped=[v[0] for v in seen.values()]
+    p=pri.get(sn,2)
+    if ch['url'] not in seen or p < seen[ch['url']]['pri']:
+        seen[ch['url']]={'ch':ch,'pri':p}
+deduped=[v['ch'] for v in seen.values()]
 print(f"After URL dedup: {len(deduped)}")
 
 n_en=len(deduped)
 deduped=[c for c in deduped if is_english(c)]
 print(f"English-language: {n_en} -> {len(deduped)}")
 
+print(f"\nValidating {len(deduped)} streams ({MAX_WORKERS} workers)...")
+valid,failed=[],[]
+with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+    futs={ex.submit(validate,c):c for c in deduped}
+    for fut in concurrent.futures.as_completed(futs):
+        if fut.result(): valid.append(futs[fut])
+        else: failed.append(futs[fut])
+print(f"Passed: {len(valid)}, Failed (VPN-blocked): {len(failed)}")
+deduped=valid
+
+fm={}
+for c in deduped:
+    if c['url'] not in fm: fm[c['url']]=c
+deduped=list(fm.values())
+
 eu={c['url'] for c in deduped}
-added_extras=[]
+added=[]
 for ec in EXTRA_CHANNELS:
-    if ec['url'] not in eu:
-        deduped.append(ec); eu.add(ec['url']); added_extras.append(ec['name'])
-if added_extras:
-    print(f"Added extras: {', '.join(added_extras)}")
+    if ec['url'] not in eu: deduped.append(ec); eu.add(ec['url']); added.append(ec['name'])
+if added: print(f"Added extras: {', '.join(added)}")
 
 def sk(c):
     g=c['group'].lower()
@@ -210,11 +245,8 @@ groups=Counter(c['group'] for c in deduped)
 print(f"\nGroups ({len(groups)}):")
 for g,cnt in groups.most_common(): print(f"  {g}: {cnt}")
 
-# Verify multi-group count
-all_grps=re.findall(r'group-title="([^"]+)"', open(OUTPUT_PLAYLIST).read())
-multi=sum(1 for g in all_grps if ';' in g)
+multi=sum(1 for c in deduped if ';' in c.get('group',''))
 print(f"\nMulti-group entries: {multi}")
-
 print(f"\n{'='*60}")
 print(f"Total raw: {total_raw}")
 print(f"Final channels: {len(deduped)}")
