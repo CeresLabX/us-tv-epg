@@ -349,6 +349,7 @@ print(f"Removed International: {before_intl - len(deduped)}")
 GROUP_OVERRIDES = {
     'KGWDT1.us':     'Local News',  # KGW 8 News Portland
     'KIROTV71.us@HD': 'Local News',  # KIRO-DT1 Seattle
+    'KATU321.us@HD':  'Local News',  # ABC 2 Portland OR (KATU)
 }
 
 def apply_group_overrides(chs):
