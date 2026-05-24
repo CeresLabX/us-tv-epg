@@ -342,10 +342,31 @@ before_intl = len(deduped)
 deduped = [c for c in deduped if c['group'] != 'International']
 print(f"Removed International: {before_intl - len(deduped)}")
 
+# === GROUP OVERRIDES ===
+# Force specific channels into a group, overriding whatever iptv-org says.
+# Key = tvg-id (must match exactly). Value = group name to enforce.
+# This persists across all auto-refreshes.
+GROUP_OVERRIDES = {
+    'KGWDT1.us':     'Local News',  # KGW 8 News Portland
+    'KIROTV71.us@HD': 'Local News',  # KIRO-DT1 Seattle
+}
+
+def apply_group_overrides(chs):
+    overridden = 0
+    for c in chs:
+        if c['id'] in GROUP_OVERRIDES:
+            c['group'] = GROUP_OVERRIDES[c['id']]
+            overridden += 1
+    return overridden
+
+# Apply overrides before any other processing
+ov = apply_group_overrides(deduped)
+print(f'Group overrides applied: {ov}')
+
+# PNW local news hardcodes — add only if URL not already in iptv-org
+# (prevents duplicates when iptv-org adds these stations)
 eu={c['url'] for c in deduped}
-for ec in [{'name':'KGW 8 News Portland','id':'KGWDT1.us','logo':'','group':'Local News','url':'https://livevideo01.kgw.com/hls/live/2015506/elvs/live.m3u8'},
-           {'name':'KATU News Portland','id':'KATUDT1.us','logo':'','group':'Local News','url':'https://linear-710.frequency.stream/dist/stirr/710/hls/master/playlist.m3u8'},
-           {'name':'KIRO 7 News Seattle','id':'KIRODT1.us','logo':'','group':'Local News','url':'https://cdn-ue1-prod.tsv2.amagi.tv/linear/amg00327-coxmediagroup-kirobreaking-ono/playlist.m3u8'}]:
+for ec in [{'name':'KGW 8 News Portland','id':'KGWDT1.us','logo':'','group':'Local News','url':'https://livevideo01.kgw.com/hls/live/2015506/elvs/live.m3u8'}]:
     if ec['url'] not in eu: deduped.append(ec)
 
 def sk(c):
@@ -357,6 +378,7 @@ def sk(c):
 deduped.sort(key=sk)
 
 write_m3u(deduped,OUTPUT_PLAYLIST)
+# Rebuild EPG from the corrected deduped list (after overrides applied)
 tv=gen_epg(deduped)
 with open(OUTPUT_EPG,'wb') as f:
     f.write(b'<?xml version="1.0" encoding="UTF-8"?>\n')
